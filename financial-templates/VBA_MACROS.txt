@@ -1,0 +1,723 @@
+================================================================================
+                    EXCEL VBA MACROS FOR FINANCIAL TEMPLATES
+================================================================================
+
+This file contains VBA macros that you can add to your Excel templates for
+automation. To use these macros:
+
+1. Open your Excel file
+2. Press Alt + F11 to open the VBA Editor
+3. Insert > Module
+4. Copy and paste the macro code
+5. Close the VBA Editor
+6. Press Alt + F8 to run the macro
+
+================================================================================
+                              GENERAL LEDGER MACROS
+================================================================================
+
+'--- AUTO-GENERATE TRANSACTION ID -------------------------------------------
+Sub GenerateTransactionID()
+    Dim lastRow As Long
+    Dim newID As String
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    ' Generate ID: T followed by 4-digit number
+    newID = "T" & Format(lastRow - 1, "0000")
+    
+    ' Add new row with ID and today's date
+    ws.Cells(lastRow + 1, 1).Value = newID
+    ws.Cells(lastRow + 1, 2).Value = Date
+    
+    MsgBox "New transaction ID generated: " & newID, vbInformation
+End Sub
+
+'--- VALIDATE DEBIT/CREDIT ENTRY -------------------------------------------
+Private Sub Worksheet_Change(ByVal Target As Range)
+    ' Only validate columns E (Debit) and F (Credit)
+    If Target.Column = 5 Or Target.Column = 6 Then
+        ' Prevent negative values
+        If Target.Value < 0 Then
+            MsgBox "Negative values not allowed. Please enter positive amounts.", _
+                   vbExclamation, "Invalid Entry"
+            Target.Value = ""
+            Target.Select
+        End If
+        
+        ' Ensure only one of debit or credit is entered
+        If Target.Column = 5 And Target.Value > 0 Then
+            If Cells(Target.Row, 6).Value > 0 Then
+                MsgBox "Cannot enter both debit and credit. Clear one first.", _
+                       vbExclamation, "Invalid Entry"
+                Target.Value = ""
+                Target.Select
+            End If
+        End If
+        
+        If Target.Column = 6 And Target.Value > 0 Then
+            If Cells(Target.Row, 5).Value > 0 Then
+                MsgBox "Cannot enter both debit and credit. Clear one first.", _
+                       vbExclamation, "Invalid Entry"
+                Target.Value = ""
+                Target.Select
+            End If
+        End If
+    End If
+End Sub
+
+'--- CALCULATE RUNNING BALANCE ---------------------------------------------
+Sub CalculateRunningBalance()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim i As Long
+    
+    Set ws = ActiveSheet
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    ' Starting balance (row 2)
+    ws.Range("G2").Formula = "=E2-F2"
+    
+    ' Calculate running balance for remaining rows
+    For i = 3 To lastRow
+        ws.Cells(i, 7).Formula = "=G" & i - 1 & "+E" & i & "-F" & i
+    Next i
+    
+    MsgBox "Running balance calculated!", vbInformation
+End Sub
+
+'--- EXPORT TO CSV ---------------------------------------------------------
+Sub ExportLedgerToCSV()
+    Dim ws As Worksheet
+    Dim fileName As String
+    Dim newWB As Workbook
+    
+    Set ws = ActiveSheet
+    
+    ' Create filename with date
+    fileName = "General_Ledger_" & Format(Date, "yyyymmdd") & ".csv"
+    
+    ' Copy sheet to new workbook
+    ws.Copy
+    Set newWB = ActiveWorkbook
+    
+    ' Save as CSV
+    newWB.SaveAs fileName, FileFormat:=xlCSV
+    newWB.Close SaveChanges:=False
+    
+    MsgBox "Ledger exported to: " & fileName, vbInformation
+End Sub
+
+'--- FILTER BY DATE RANGE --------------------------------------------------
+Sub FilterByDateRange()
+    Dim ws As Worksheet
+    Dim startDate As Date
+    Dim endDate As Date
+    
+    Set ws = ActiveSheet
+    
+    ' Get date range from user
+    startDate = InputBox("Enter Start Date (MM/DD/YYYY):", "Filter Start Date")
+    endDate = InputBox("Enter End Date (MM/DD/YYYY):", "Filter End Date")
+    
+    ' Apply filter
+    If startDate <> 0 And endDate <> 0 Then
+        ws.Range("A1:J" & ws.Rows.Count).AutoFilter Field:=2, _
+            Criteria1:=">=" & startDate, Operator:=xlAnd, Criteria2:="<=" & endDate
+        MsgBox "Filtered transactions from " & startDate & " to " & endDate, vbInformation
+    End If
+End Sub
+
+================================================================================
+                            BALANCE SHEET MACROS
+================================================================================
+
+'--- CALCULATE BALANCE SHEET ------------------------------------------------
+Sub CalculateBalanceSheet()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    ' Recalculate all formulas
+    ws.Calculate
+    
+    ' Check if balance sheet balances
+    Dim totalAssets As Double
+    Dim totalLiabEquity As Double
+    
+    totalAssets = ws.Range("Total_Assets").Value
+    totalLiabEquity = ws.Range("Total_Liab_Equity").Value
+    
+    If Abs(totalAssets - totalLiabEquity) > 0.01 Then
+        MsgBox "WARNING: Balance Sheet does not balance!" & vbCrLf & vbCrLf & _
+               "Total Assets: " & Format(totalAssets, "$#,##0.00") & vbCrLf & _
+               "Total Liab & Equity: " & Format(totalLiabEquity, "$#,##0.00") & vbCrLf & _
+               "Difference: " & Format(totalAssets - totalLiabEquity, "$#,##0.00"), _
+               vbExclamation, "Balance Check Failed"
+    Else
+        MsgBox "Balance Sheet is balanced!", vbInformation, "Balance Check Passed"
+    End If
+End Sub
+
+'--- CREATE COMPARATIVE BALANCE SHEET ---------------------------------------
+Sub CreateComparativeBalanceSheet()
+    Dim ws As Worksheet
+    Dim newWS As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    ' Create new sheet for comparison
+    Set newWS = Worksheets.Add(After:=ws)
+    newWS.Name = "Comparative Balance Sheet"
+    
+    ' Copy structure
+    ws.UsedRange.Copy
+    newWS.Range("A1").PasteSpecial xlPasteValues
+    newWS.Range("A1").PasteSpecial xlPasteFormats
+    
+    ' Add column for previous period
+    newWS.Columns("B").Insert
+    newWS.Cells(1, 2).Value = "Current Period"
+    newWS.Cells(1, 3).Value = "Previous Period"
+    newWS.Cells(1, 4).Value = "Change"
+    newWS.Cells(1, 5).Value = "% Change"
+    
+    ' Format headers
+    newWS.Range("A1:E1").Font.Bold = True
+    
+    MsgBox "Comparative Balance Sheet created!", vbInformation
+End Sub
+
+================================================================================
+                          INCOME STATEMENT MACROS
+================================================================================
+
+'--- GENERATE INCOME STATEMENT ----------------------------------------------
+Sub GenerateIncomeStatement()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    ' Calculate revenue section
+    ws.Range("Net_Sales").Formula = "=Sales_Revenue - Sales_Returns - Discounts"
+    ws.Range("Total_Revenue").Formula = "=Net_Sales + Other_Revenue"
+    
+    ' Calculate COGS
+    ws.Range("COGS").Formula = "=Beg_Inventory + Purchases - End_Inventory"
+    
+    ' Calculate gross profit
+    ws.Range("Gross_Profit").Formula = "=Total_Revenue - COGS"
+    
+    ' Calculate operating income
+    ws.Range("Operating_Expenses").Formula = "=SUM(Operating_Expenses_Range)"
+    ws.Range("Operating_Income").Formula = "=Gross_Profit - Operating_Expenses"
+    
+    ' Calculate net income
+    ws.Range("Income_Before_Tax").Formula = "=Operating_Income + Net_Other_Income"
+    ws.Range("Income_Tax").Formula = "=Income_Before_Tax * Tax_Rate"
+    ws.Range("Net_Income").Formula = "=Income_Before_Tax - Income_Tax"
+    
+    ' Calculate percentages
+    ws.Range("Gross_Margin_Pct").Formula = "=Gross_Profit / Total_Revenue"
+    ws.Range("Operating_Margin_Pct").Formula = "=Operating_Income / Total_Revenue"
+    ws.Range("Net_Margin_Pct").Formula = "=Net_Income / Total_Revenue"
+    
+    ws.Calculate
+    MsgBox "Income Statement calculated!", vbInformation
+End Sub
+
+'--- COMPARE ACTUAL VS BUDGET -----------------------------------------------
+Sub CompareActualVsBudget()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    
+    Set ws = ActiveSheet
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    ' Calculate variance
+    ws.Range("Variance").Formula = "=Actual - Budget"
+    ws.Range("Variance_Pct").Formula = "=IF(Budget<>0, (Actual-Budget)/Budget, 0)"
+    
+    ' Apply conditional formatting
+    With ws.Range("Variance").FormatConditions
+        .Add Type:=xlCellValue, Operator:=xlGreater, Formula1:="0"
+        .Item(1).Interior.Color = RGB(146, 208, 80)  ' Green for favorable
+        .Add Type:=xlCellValue, Operator:=xlLess, Formula1:="0"
+        .Item(2).Interior.Color = RGB(255, 0, 0)  ' Red for unfavorable
+    End With
+    
+    MsgBox "Variance analysis complete!", vbInformation
+End Sub
+
+================================================================================
+                              BUDGET MACROS
+================================================================================
+
+'--- CREATE MONTHLY BUDGET --------------------------------------------------
+Sub CreateMonthlyBudget()
+    Dim ws As Worksheet
+    Dim i As Integer
+    
+    Set ws = ActiveSheet
+    
+    ' Clear previous data
+    ws.Range("B2:M100").ClearContents
+    
+    ' Set up row totals
+    For i = 2 To 50
+        ws.Cells(i, 14).Formula = "=SUM(B" & i & ":M" & i & ")"
+    Next i
+    
+    ' Set up column totals
+    ws.Range("B51").Formula = "=SUM(B2:B50)"
+    ws.Range("B51").AutoFill Destination:=ws.Range("B51:N51"), Type:=xlFillDefault
+    
+    ' Format as currency
+    ws.Range("B2:N51").NumberFormat = "$#,##0"
+    
+    MsgBox "Monthly budget template created!", vbInformation
+End Sub
+
+'--- COPY BUDGET TO NEW MONTH -----------------------------------------------
+Sub CopyBudgetToNewMonth()
+    Dim ws As Worksheet
+    Dim sourceMonth As Integer
+    Dim destMonth As Integer
+    
+    Set ws = ActiveSheet
+    
+    sourceMonth = InputBox("Enter source month number (1-12):", "Source Month")
+    destMonth = InputBox("Enter destination month number (1-12):", "Destination Month")
+    
+    If sourceMonth >= 1 And sourceMonth <= 12 And destMonth >= 1 And destMonth <= 12 Then
+        ' Copy values
+        ws.Range(ws.Cells(2, sourceMonth + 1), ws.Cells(50, sourceMonth + 1)).Copy
+        ws.Cells(2, destMonth + 1).PasteSpecial xlPasteValues
+        
+        Application.CutCopyMode = False
+        MsgBox "Budget copied from month " & sourceMonth & " to month " & destMonth, vbInformation
+    Else
+        MsgBox "Invalid month number!", vbExclamation
+    End If
+End Sub
+
+'--- BUDGET VARIANCE REPORT --------------------------------------------------
+Sub GenerateBudgetVarianceReport()
+    Dim ws As Worksheet
+    Dim newWS As Worksheet
+    Dim lastRow As Long
+    
+    Set ws = ActiveSheet
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    ' Create new sheet
+    Set newWS = Worksheets.Add(After:=ws)
+    newWS.Name = "Variance Report"
+    
+    ' Copy category names
+    ws.Range("A2:A" & lastRow).Copy
+    newWS.Range("A2").PasteSpecial xlPasteValues
+    
+    ' Add headers
+    newWS.Range("A1").Value = "Category"
+    newWS.Range("B1").Value = "Budget"
+    newWS.Range("C1").Value = "Actual"
+    newWS.Range("D1").Value = "Variance"
+    newWS.Range("E1").Value = "Variance %"
+    
+    ' Add formulas
+    newWS.Range("B2:B" & lastRow).Formula = "=SUM(Original!B2:M2)"
+    newWS.Range("C2:C" & lastRow).Formula = "=SUM(Original!N2:Y2)"
+    newWS.Range("D2:D" & lastRow).Formula = "=C2-B2"
+    newWS.Range("E2:E" & lastRow).Formula = "=IF(B2<>0, (C2-B2)/B2, 0)"
+    
+    ' Format
+    newWS.Range("B2:E" & lastRow).NumberFormat = "$#,##0"
+    newWS.Range("E2:E" & lastRow).NumberFormat = "0.00%"
+    
+    ' Conditional formatting
+    With newWS.Range("D2:D" & lastRow).FormatConditions
+        .Add Type:=xlCellValue, Operator:=xlGreater, Formula1:="0"
+        .Item(1).Interior.Color = RGB(146, 208, 80)
+        .Add Type:=xlCellValue, Operator:=xlLess, Formula1:="0"
+        .Item(2).Interior.Color = RGB(255, 0, 0)
+    End With
+    
+    MsgBox "Variance report generated!", vbInformation
+End Sub
+
+================================================================================
+                          FINANCIAL RATIOS MACROS
+================================================================================
+
+'--- CALCULATE ALL RATIOS ----------------------------------------------------
+Sub CalculateAllRatios()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    ' Liquidity Ratios
+    ws.Range("Current_Ratio").Formula = "=Current_Assets/Current_Liabilities"
+    ws.Range("Quick_Ratio").Formula = "=(Current_Assets-Inventory)/Current_Liabilities"
+    ws.Range("Cash_Ratio").Formula = "=Cash/Current_Liabilities"
+    
+    ' Profitability Ratios
+    ws.Range("Gross_Margin").Formula = "=Gross_Profit/Net_Sales"
+    ws.Range("Operating_Margin").Formula = "=Operating_Income/Net_Sales"
+    ws.Range("Net_Margin").Formula = "=Net_Income/Net_Sales"
+    ws.Range("ROA").Formula = "=Net_Income/Total_Assets"
+    ws.Range("ROE").Formula = "=Net_Income/Total_Equity"
+    
+    ' Efficiency Ratios
+    ws.Range("Asset_Turnover").Formula = "=Net_Sales/Total_Assets"
+    ws.Range("Inventory_Turnover").Formula = "=COGS/Average_Inventory"
+    ws.Range("AR_Turnover").Formula = "=Net_Sales/Average_AR"
+    
+    ' Solvency Ratios
+    ws.Range("Debt_to_Equity").Formula = "=Total_Liabilities/Total_Equity"
+    ws.Range("Debt_Ratio").Formula = "=Total_Liabilities/Total_Assets"
+    ws.Range("Times_Interest_Earned").Formula = "=EBIT/Interest_Expense"
+    
+    ws.Calculate
+    MsgBox "All financial ratios calculated!", vbInformation
+End Sub
+
+'--- RATIO ANALYSIS CHART ---------------------------------------------------
+Sub CreateRatioChart()
+    Dim ws As Worksheet
+    Dim chartObj As ChartObject
+    
+    Set ws = ActiveSheet
+    
+    ' Create chart
+    Set chartObj = ws.ChartObjects.Add(Left:=100, Width:=400, Top:=50, Height:=300)
+    
+    With chartObj.Chart
+        .ChartType = xlColumnClustered
+        .SetSourceData Source:=ws.Range("Ratio_Names,Ratio_Values")
+        .HasTitle = True
+        .ChartTitle.Text = "Financial Ratios Analysis"
+        .Axes(xlCategory).CategoryTitle = "Ratio"
+        .Axes(xlValue).AxisTitle.Text = "Value"
+    End With
+    
+    MsgBox "Ratio chart created!", vbInformation
+End Sub
+
+================================================================================
+                           UTILITY MACROS
+================================================================================
+
+'--- PROTECT FORMULAS --------------------------------------------------------
+Sub ProtectFormulas()
+    Dim ws As Worksheet
+    Dim cell As Range
+    
+    Set ws = ActiveSheet
+    
+    ' Unlock all cells
+    ws.Cells.Locked = False
+    
+    ' Lock cells with formulas
+    For Each cell In ws.UsedRange
+        If cell.HasFormula Then
+            cell.Locked = True
+            cell.Interior.Color = RGB(255, 255, 200)  ' Light yellow
+        End If
+    Next cell
+    
+    ' Protect sheet
+    ws.Protect Password:="finance123", DrawingObjects:=True, Contents:=True, Scenarios:=True
+    
+    MsgBox "Formulas protected! Password: finance123", vbInformation
+End Sub
+
+'--- UNPROTECT SHEET ---------------------------------------------------------
+Sub UnprotectSheet()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    ws.Unprotect Password:="finance123"
+    
+    MsgBox "Sheet unprotected!", vbInformation
+End Sub
+
+'--- CLEAR DATA (KEEP FORMULAS) ---------------------------------------------
+Sub ClearDataKeepFormulas()
+    Dim ws As Worksheet
+    Dim cell As Range
+    
+    Set ws = ActiveSheet
+    
+    ' Clear only non-formula cells
+    For Each cell In ws.UsedRange
+        If Not cell.HasFormula And cell.Row > 1 Then
+            cell.ClearContents
+        End If
+    Next cell
+    
+    MsgBox "Data cleared! Formulas preserved.", vbInformation
+End Sub
+
+'--- EXPORT ALL SHEETS TO PDF -----------------------------------------------
+Sub ExportAllToPDF()
+    Dim ws As Worksheet
+    Dim fileName As String
+    
+    fileName = "Financial_Statements_" & Format(Date, "yyyymmdd") & ".pdf"
+    
+    ThisWorkbook.ExportAsFixedFormat Type:=xlTypePDF, fileName:=fileName
+    
+    MsgBox "All sheets exported to PDF: " & fileName, vbInformation
+End Sub
+
+'--- CREATE BACKUP -----------------------------------------------------------
+Sub CreateBackup()
+    Dim backupName As String
+    
+    backupName = ThisWorkbook.Name & "_Backup_" & Format(Now, "yyyymmdd_hhmmss") & ".xlsm"
+    
+    ThisWorkbook.SaveCopyAs backupName
+    
+    MsgBox "Backup created: " & backupName, vbInformation
+End Sub
+
+'--- AUTO-SAVE WITH TIMESTAMP -----------------------------------------------
+Sub AutoSaveWithTimestamp()
+    Dim saveName As String
+    
+    saveName = "Financial_Statements_" & Format(Now, "yyyymmdd_hhmmss") & ".xlsm"
+    
+    ThisWorkbook.SaveAs saveName, FileFormat:=xlOpenXMLWorkbookMacroEnabled
+    
+    MsgBox "File saved as: " & saveName, vbInformation
+End Sub
+
+'--- DATA VALIDATION FOR ACCOUNT CODES --------------------------------------
+Sub AddAccountCodeValidation()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    With ws.Range("Account_Code_Column").Validation
+        .Delete
+        .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, _
+             Operator:=xlBetween, Formula1:="1001,1002,1003,2001,2002,3001,4001,5001"
+        .IgnoreBlank = True
+        .InCellDropdown = True
+        .ErrorTitle = "Invalid Account Code"
+        .ErrorMessage = "Please select a valid account code from the list."
+        .ShowError = True
+    End With
+    
+    MsgBox "Account code validation added!", vbInformation
+End Sub
+
+'--- CREATE DROPDOWN FOR STATUS ---------------------------------------------
+Sub AddStatusDropdown()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    With ws.Range("Status_Column").Validation
+        .Delete
+        .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, _
+             Operator:=xlBetween, Formula1:="Posted,Pending,Cancelled"
+        .IgnoreBlank = True
+        .InCellDropdown = True
+        .ErrorTitle = "Invalid Status"
+        .ErrorMessage = "Please select: Posted, Pending, or Cancelled"
+        .ShowError = True
+    End With
+    
+    MsgBox "Status dropdown added!", vbInformation
+End Sub
+
+'--- HIGHLIGHT NEGATIVE VALUES -----------------------------------------------
+Sub HighlightNegativeValues()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    With ws.Range("Data_Range").FormatConditions
+        .Add Type:=xlCellValue, Operator:=xlLess, Formula1:="0"
+        With .Item(1)
+            .Interior.Color = RGB(255, 199, 206)  ' Light red
+            .Font.Color = RGB(156, 0, 6)
+        End With
+    End With
+    
+    MsgBox "Negative values highlighted!", vbInformation
+End Sub
+
+'--- ADD CONDITIONAL FORMATTING FOR PROFIT/LOSS -----------------------------
+Sub FormatProfitLoss()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    With ws.Range("Net_Income_Cell").FormatConditions
+        .Delete
+        
+        ' Profit - Green
+        .Add Type:=xlCellValue, Operator:=xlGreater, Formula1:="0"
+        .Item(1).Interior.Color = RGB(146, 208, 80)
+        .Item(1).Font.Color = RGB(0, 0, 0)
+        .Item(1).Font.Bold = True
+        
+        ' Loss - Red
+        .Add Type:=xlCellValue, Operator:=xlLess, Formula1:="0"
+        .Item(2).Interior.Color = RGB(255, 0, 0)
+        .Item(2).Font.Color = RGB(255, 255, 255)
+        .Item(2).Font.Bold = True
+    End With
+    
+    MsgBox "Profit/Loss formatting applied!", vbInformation
+End Sub
+
+================================================================================
+                            INVOICE GENERATOR MACROS
+================================================================================
+
+'--- GENERATE NEW INVOICE ---------------------------------------------------
+Sub GenerateNewInvoice()
+    Dim ws As Worksheet
+    Dim invNum As String
+    Dim lastInv As String
+    
+    Set ws = ActiveSheet
+    
+    ' Get last invoice number
+    lastInv = ws.Range("Invoice_Number").Value
+    
+    ' Generate new invoice number
+    If IsNumeric(lastInv) Then
+        invNum = CStr(CLng(lastInv) + 1)
+    Else
+        invNum = "INV-" & Format(Date, "yyyymmdd") & "-001"
+    End If
+    
+    ' Set new invoice details
+    ws.Range("Invoice_Number").Value = invNum
+    ws.Range("Invoice_Date").Value = Date
+    ws.Range("Due_Date").Value = Date + 30
+    
+    ' Clear line items
+    ws.Range("Line_Items").ClearContents
+    
+    MsgBox "New invoice " & invNum & " created!", vbInformation
+End Sub
+
+'--- CALCULATE INVOICE TOTALS ------------------------------------------------
+Sub CalculateInvoiceTotals()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    ' Calculate line item amounts
+    ws.Range("Line_Amounts").Formula = "=Quantity * Unit_Price"
+    
+    ' Calculate totals
+    ws.Range("Subtotal").Formula = "=SUM(Line_Amounts)"
+    ws.Range("Tax").Formula = "=Subtotal * Tax_Rate"
+    ws.Range("Discount").Formula = "=Subtotal * Discount_Rate"
+    ws.Range("Total_Due").Formula = "=Subtotal + Tax - Discount"
+    
+    ws.Calculate
+    MsgBox "Invoice totals calculated!", vbInformation
+End Sub
+
+'--- PRINT INVOICE -----------------------------------------------------------
+Sub PrintInvoice()
+    Dim ws As Worksheet
+    
+    Set ws = ActiveSheet
+    
+    ' Set print area
+    ws.PageSetup.PrintArea = "Print_Area"
+    
+    ' Set margins
+    With ws.PageSetup
+        .LeftMargin = Application.InchesToPoints(0.5)
+        .RightMargin = Application.InchesToPoints(0.5)
+        .TopMargin = Application.InchesToPoints(0.75)
+        .BottomMargin = Application.InchesToPoints(0.75)
+    End With
+    
+    ' Print preview
+    ws.PrintOut Preview:=True
+    
+    MsgBox "Invoice ready to print!", vbInformation
+End Sub
+
+================================================================================
+                            LOAN AMORTIZATION MACROS
+================================================================================
+
+'--- GENERATE AMORTIZATION SCHEDULE -----------------------------------------
+Sub GenerateAmortizationSchedule()
+    Dim ws As Worksheet
+    Dim loanAmount As Double
+    Dim annualRate As Double
+    Dim loanTerm As Integer
+    Dim monthlyPayment As Double
+    Dim balance As Double
+    Dim interest As Double
+    Dim principal As Double
+    Dim i As Integer
+    
+    Set ws = ActiveSheet
+    
+    ' Get loan parameters
+    loanAmount = ws.Range("Loan_Amount").Value
+    annualRate = ws.Range("Interest_Rate").Value
+    loanTerm = ws.Range("Loan_Term_Years").Value * 12  ' Convert to months
+    
+    ' Calculate monthly payment
+    monthlyPayment = Application.WorksheetFunction.Pmt(annualRate / 12, loanTerm, -loanAmount)
+    
+    ' Generate schedule
+    balance = loanAmount
+    
+    For i = 1 To loanTerm
+        interest = balance * (annualRate / 12)
+        principal = monthlyPayment - interest
+        balance = balance - principal
+        
+        ' Prevent negative balance in last period
+        If balance < 0 Then
+            principal = principal + balance
+            balance = 0
+        End If
+        
+        ws.Cells(i + 2, 1).Value = i
+        ws.Cells(i + 2, 2).Value = monthlyPayment
+        ws.Cells(i + 2, 3).Value = principal
+        ws.Cells(i + 2, 4).Value = interest
+        ws.Cells(i + 2, 5).Value = balance
+    Next i
+    
+    ' Format as currency
+    ws.Range("B3:E" & loanTerm + 2).NumberFormat = "$#,##0.00"
+    
+    ' Calculate totals
+    ws.Cells(loanTerm + 3, 2).Formula = "=SUM(B3:B" & loanTerm + 2 & ")"
+    ws.Cells(loanTerm + 3, 3).Formula = "=SUM(C3:C" & loanTerm + 2 & ")"
+    ws.Cells(loanTerm + 3, 4).Formula = "=SUM(D3:D" & loanTerm + 2 & ")"
+    
+    MsgBox "Amortization schedule generated for " & loanTerm & " months!", vbInformation
+End Sub
+
+================================================================================
+                              NOTES
+================================================================================
+
+1. Always backup your files before running macros
+2. Test macros with sample data first
+3. Adjust cell references to match your template structure
+4. Some macros require named ranges - define these first
+5. For complex automation, consider combining multiple macros
+
+================================================================================
